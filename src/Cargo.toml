@@ -1,0 +1,12 @@
+[package]
+name = "nostr-ppg"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ppg"
+path = "ppg.rs"
+
+[dependencies]
+nostr-sdk = "0.29.0"
+tokio = { version = "1", features = ["full"] }
