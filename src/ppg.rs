@@ -3,13 +3,15 @@ use std::fs;
 use std::time::Duration;
 
 use nostr_sdk::prelude as nostr;
-use nostr_sdk::prelude::{Client, Keys, Kind, Metadata, Result, ToBech32};
+use nostr_sdk::prelude::{Result};
+use nostr_sdk::{ToBech32 as _};
+
 use warp;
-use warp::{Filter};
+use warp::{Filter as _};
 
 #[allow(dead_code)]
 fn generate_seckey() -> Result<String> {
-    let keys = Keys::generate();
+    let keys = nostr::Keys::generate();
     Ok(keys.secret_key()?.to_bech32()?)
 }
 
@@ -27,8 +29,8 @@ async fn generate_seckey_end_point() -> Result<impl warp::Reply, warp::Rejection
 }
 
 #[allow(dead_code)]
-async fn set_metadata(client: &Client) -> Result<()> {
-    let metadata = Metadata::new()
+async fn set_metadata(client: &nostr::Client) -> Result<()> {
+    let metadata = nostr::Metadata::new()
         .name("fysx-nostr-ppg")
         .display_name("Fysx Nostr PPG")
         .about("Personal Playground for Nostr dev.")
@@ -40,7 +42,7 @@ async fn set_metadata(client: &Client) -> Result<()> {
 #[allow(dead_code)]
 async fn get_events() -> Result<()> {
     // Create client from secret key.
-    let keys = Keys::parse(fs::read_to_string(".nsec")?)?;
+    let keys = nostr::Keys::parse(fs::read_to_string(".nsec")?)?;
 
     // Show bech32 public key
     let pubkey = keys.public_key();
@@ -48,12 +50,12 @@ async fn get_events() -> Result<()> {
     println!("Bech32 PubKey: {}", bech32_pubkey);
 
     // Create new client
-    let client = Client::new(&keys);
+    let client = nostr::Client::new(&keys);
     client.add_relay("wss://relay.damus.io").await?;
     client.connect().await;
 
     // Get metadata.
-    let filter = nostr::Filter::new().author(pubkey).kind(Kind::Metadata);
+    let filter = nostr::Filter::new().author(pubkey).kind(nostr::Kind::Metadata);
     let events = client
         .get_events_of(vec![filter], Some(Duration::from_secs(10)))
         .await?;
@@ -62,7 +64,7 @@ async fn get_events() -> Result<()> {
     // Get text notes.
     let filter = nostr::Filter::new()
         .author(pubkey)
-        .kind(Kind::TextNote)
+        .kind(nostr::Kind::TextNote)
         .limit(3);
     let events = client
         .get_events_of(
