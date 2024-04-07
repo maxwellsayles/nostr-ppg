@@ -5,7 +5,7 @@ use std::thread;
 
 use nostr_sdk::prelude as nostr;
 use nostr_sdk::prelude::Result;
-use nostr_sdk::ToBech32 as _;
+use nostr_sdk::{NostrDatabase as _, ToBech32 as _};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -73,13 +73,17 @@ async fn make_client(keys: &nostr::Keys) -> Result<nostr_sdk::Client> {
     Ok(client)
 }
 
-async fn notification_handler(client: &nostr_sdk::Client) -> Result<()> {
+async fn notification_handler(
+    db: &dyn nostr_sdk::NostrDatabase<Err = nostr_database::DatabaseError>,
+    client: &nostr_sdk::Client,
+) -> Result<()> {
     client
         .handle_notifications(|notif| async {
             match notif {
                 nostr_sdk::RelayPoolNotification::Event { event, .. } => {
                     if event.kind() == nostr::Kind::TextNote {
                         println!("Event: {event:?}");
+                        db.save_event(&event).await?;
                     }
                 }
                 _ => {
@@ -94,6 +98,14 @@ async fn notification_handler(client: &nostr_sdk::Client) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let db = nostr_rocksdb::RocksDatabase::open("rocksdb")
+        .await
+        .expect("Unable to open or create rocksdb.");
+    println!(
+        "DB \"rocksdb\" opened and stores {} events.",
+        db.count(vec![nostr::Filter::new()]).await.unwrap()
+    );
+
     let keys = load_keys()?;
     let pubkey = keys.public_key();
     println!("Client will sign as {}", pubkey.to_bech32()?);
@@ -109,7 +121,7 @@ async fn main() -> Result<()> {
     let client2 = client.clone();
     thread::spawn(move || {
         println!("Listening to nostr event notifications on a seprate thread.");
-        let _ = futures::executor::block_on(notification_handler(&client2));
+        let _ = futures::executor::block_on(notification_handler(&db, &client2));
     });
 
     // Set up the routes for the REST server.
@@ -119,7 +131,7 @@ async fn main() -> Result<()> {
         .and(warp::path::end())
         .and_then(new_keys_route);
     let publish_text_note = warp::post()
-	.and(warp::path("publish-text-note"))
+        .and(warp::path("publish-text-note"))
         .and(warp::path::end())
         .and(with_client(client.clone()))
         .and(warp::body::json())

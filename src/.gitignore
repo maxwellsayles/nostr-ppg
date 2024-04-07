@@ -1,4 +1,5 @@
 .nsec
 *~
 Cargo.lock
+rocksdb/
 target/
