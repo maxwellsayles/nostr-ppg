@@ -1,14 +1,29 @@
+use std::collections::HashMap;
 use std::fs;
 use std::time::Duration;
 
-use nostr_sdk::prelude::*;
+use nostr_sdk::prelude as nostr;
+use nostr_sdk::prelude::{Client, Keys, Kind, Metadata, Result, ToBech32};
+use warp;
+use warp::{Filter};
 
 #[allow(dead_code)]
-fn generate_keys() -> Result<()> {
+fn generate_seckey() -> Result<String> {
     let keys = Keys::generate();
-    let seckey = keys.secret_key()?.to_bech32()?;
-    fs::write(".nsec", seckey)?;
-    Ok(())
+    Ok(keys.secret_key()?.to_bech32()?)
+}
+
+
+#[allow(dead_code)]
+async fn generate_seckey_end_point() -> Result<impl warp::Reply, warp::Rejection> {
+    match generate_seckey() {
+	Ok(seckey) => {
+	    Ok(warp::reply::json(
+		&HashMap::from([("secret", &seckey)]),
+	    ))
+	},
+	Err(_) => Err(warp::reject::reject()),
+    }
 }
 
 #[allow(dead_code)]
@@ -22,8 +37,8 @@ async fn set_metadata(client: &Client) -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[allow(dead_code)]
+async fn get_events() -> Result<()> {
     // Create client from secret key.
     let keys = Keys::parse(fs::read_to_string(".nsec")?)?;
 
@@ -38,14 +53,14 @@ async fn main() -> Result<()> {
     client.connect().await;
 
     // Get metadata.
-    let filter = Filter::new().author(pubkey).kind(Kind::Metadata);
+    let filter = nostr::Filter::new().author(pubkey).kind(Kind::Metadata);
     let events = client
         .get_events_of(vec![filter], Some(Duration::from_secs(10)))
         .await?;
     println!("{events:#?}");
 
     // Get text notes.
-    let filter = Filter::new()
+    let filter = nostr::Filter::new()
         .author(pubkey)
         .kind(Kind::TextNote)
         .limit(3);
@@ -57,5 +72,14 @@ async fn main() -> Result<()> {
         .await?;
     println!("{events:#?}");
 
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let routes = warp::get()
+	.and(warp::path("new_seckey"))
+	.and_then(generate_seckey_end_point);
+    warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
     Ok(())
 }
