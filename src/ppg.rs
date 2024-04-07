@@ -9,19 +9,21 @@ use nostr_sdk::{ToBech32 as _};
 use warp;
 use warp::{Filter as _};
 
-#[allow(dead_code)]
-fn generate_seckey() -> Result<String> {
-    let keys = nostr::Keys::generate();
-    Ok(keys.secret_key()?.to_bech32()?)
+fn get_bech32(keys: &nostr::Keys) -> Result<(String, String)> {
+    let pubkey = keys.public_key().to_bech32()?;
+    let seckey = keys.secret_key()?.to_bech32()?;
+    Ok((pubkey, seckey))
 }
 
-
-#[allow(dead_code)]
-async fn generate_seckey_end_point() -> Result<impl warp::Reply, warp::Rejection> {
-    match generate_seckey() {
-	Ok(seckey) => {
+async fn new_keys_route() -> Result<impl warp::Reply, warp::Rejection> {
+    let keys = nostr::Keys::generate();
+    match get_bech32(&keys) {
+	Ok((pubkey, seckey)) => {
 	    Ok(warp::reply::json(
-		&HashMap::from([("secret", &seckey)]),
+		&HashMap::from([
+		    ("pubkey", &pubkey),
+		    ("secret", &seckey),
+		]),
 	    ))
 	},
 	Err(_) => Err(warp::reject::reject()),
@@ -80,8 +82,8 @@ async fn get_events() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let routes = warp::get()
-	.and(warp::path("new_seckey"))
-	.and_then(generate_seckey_end_point);
+	.and(warp::path("new_keys"))
+	.and_then(new_keys_route);
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
     Ok(())
 }
