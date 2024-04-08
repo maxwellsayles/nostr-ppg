@@ -8,6 +8,7 @@ name = "ppg"
 path = "ppg.rs"
 
 [dependencies]
+futures = "0.3.30"
 nostr-sdk = "0.29.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
