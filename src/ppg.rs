@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fs;
 use std::thread;
 
@@ -6,13 +7,13 @@ use nostr_sdk::prelude as nostr;
 use nostr_sdk::prelude::{Result};
 use nostr_sdk::{ToBech32 as _};
 
+use serde_derive::{Deserialize, Serialize};
+
 use warp;
 use warp::{Filter as _};
 
-fn get_bech32(keys: &nostr::Keys) -> Result<(String, String)> {
-    let pubkey = keys.public_key().to_bech32()?;
-    let seckey = keys.secret_key()?.to_bech32()?;
-    Ok((pubkey, seckey))
+fn with_client(client: nostr_sdk::Client) -> impl warp::Filter<Extract = (nostr_sdk::Client,), Error = Infallible> + Clone {
+    warp::any().map(move || client.clone())
 }
 
 async fn new_keys_route() -> Result<impl warp::Reply, warp::Rejection> {
@@ -28,6 +29,25 @@ async fn new_keys_route() -> Result<impl warp::Reply, warp::Rejection> {
 	},
 	Err(_) => Err(warp::reject::reject()),
     }
+}
+
+
+#[derive(Serialize, Deserialize)]
+struct PublishTextNoteQuery {
+    msg: String,
+}
+
+async fn publish_text_note_route(client: nostr_sdk::Client, params: PublishTextNoteQuery) -> Result<impl warp::Reply, warp::Rejection> {
+    match client.publish_text_note(params.msg, []).await {
+	Ok(_) => Ok(warp::http::StatusCode::OK),
+	Err(_) => Err(warp::reject::reject()),
+    }
+}
+
+fn get_bech32(keys: &nostr::Keys) -> Result<(String, String)> {
+    let pubkey = keys.public_key().to_bech32()?;
+    let seckey = keys.secret_key()?.to_bech32()?;
+    Ok((pubkey, seckey))
 }
 
 fn load_keys() -> Result<nostr::Keys> {
@@ -90,16 +110,25 @@ async fn main() -> Result<()> {
         .since(nostr_sdk::Timestamp::now());
     client.subscribe(vec![subscription], None).await;
 
+    let client2 = client.clone();
     thread::spawn(move || {
 	println!("Listening to nostr event notifications on a seprate thread.");
-	let _ = futures::executor::block_on(notification_handler(&client));
+	let _ = futures::executor::block_on(notification_handler(&client2));
     });
 
     // Set up the routes for the REST server.
     println!("Listening to REST requests on http://127.0.0.1:8080.");
-    let routes = warp::get()
-	.and(warp::path("new_keys"))
+    let new_keys = warp::get()
+	.and(warp::path("new-keys"))
+	.and(warp::path::end())
 	.and_then(new_keys_route);
+    let publish_text_note = warp::post()
+	.and(warp::path("publish-text-note"))
+	.and(warp::path::end())
+	.and(with_client(client.clone()))
+	.and(warp::body::json())
+	.and_then(publish_text_note_route);
+    let routes = new_keys.or(publish_text_note);
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
     Ok(())
 }
