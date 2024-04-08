@@ -50,9 +50,11 @@ fn get_bech32(keys: &nostr::Keys) -> Result<(String, String)> {
     Ok((pubkey, seckey))
 }
 
+/**
+ * Attempt to load the .nsec file to use a persistent signer across runs.
+ * Otherwise, generate new keys so messages can still be signed.
+ */
 fn load_keys() -> Result<nostr::Keys> {
-    // Attempt to load the .nsec file to use a persistent signer.
-    // If not, this will be read only mode.
     let keys = match fs::read_to_string(".nsec") {
         Ok(nsec) => nostr::Keys::parse(nsec)?,
         Err(_) => {
