@@ -14,13 +14,22 @@ Spark this up with:
 
 You can optionally create a `.nsec` file with your secret-key to be used, but if not, the server will just create one.
 
-There's only two REST end points at the moment. You can query for a new public/secret key pair (these won't be used) with:
+The following are examples of invoking the REST API.
+
+1. You can query for a new public/secret key pair (these won't be used) with:
 
 > $ curl -X GET http://127.0.0.1:8080/new-keys
 > {"secret":"nsec19cdpzqauf3mkh8d6z27qy77g7qq5eux5f06sm62esr3uk4r2eyyqpv78vk","pubkey":"npub1ekc0z9u5snhkd86tqk4xl4ltxsef3z7pc0f6llazdvd268gqzeaqehe5nc"}
 
-And you can post a text note using the current signer (either from the `.nsec` file or the sever generated one) with:
+2. You can post a text note using the current signer (either from the `.nsec` file or the sever generated one) with:
 
 > $ curl -X POST -H "Content-Type: application/json" -d '{"msg": "GM Nostriches"}' http://127.0.0.1:8080/publish-text-note
 
 After executing the above command, you should see the server emit a message once the text note is received.
+
+3. You can query for all the most recent text notes persisted (up to 10) with:
+
+> $ curl -X GET http://127.0.0.1:8080/latest-text-notes?limit=10
+[{"author_bech32":"npub1t3zx06xh8qhnle30qp0vqsx2ywye64u750q8l2j20jpj98s6kdwsxk2l50","content":"Yet another post, but this one is persisted locally.","created_at":1712621522}]
+
+where `limit=10` is optional.

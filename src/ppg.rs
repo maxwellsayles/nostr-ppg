@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs;
@@ -12,10 +13,16 @@ use serde_derive::{Deserialize, Serialize};
 use warp;
 use warp::Filter as _;
 
+type DB = nostr_rocksdb::RocksDatabase;
+
 fn with_client(
     client: nostr_sdk::Client,
 ) -> impl warp::Filter<Extract = (nostr_sdk::Client,), Error = Infallible> + Clone {
     warp::any().map(move || client.clone())
+}
+
+fn with_db(db: DB) -> impl warp::Filter<Extract = (DB,), Error = Infallible> + Clone {
+    warp::any().map(move || db.clone())
 }
 
 async fn new_keys_route() -> Result<impl warp::Reply, warp::Rejection> {
@@ -29,7 +36,7 @@ async fn new_keys_route() -> Result<impl warp::Reply, warp::Rejection> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PublishTextNoteQuery {
     msg: String,
 }
@@ -42,6 +49,44 @@ async fn publish_text_note_route(
         Ok(_) => Ok(warp::http::StatusCode::OK),
         Err(_) => Err(warp::reject::reject()),
     }
+}
+
+#[derive(Deserialize)]
+struct TextNotesQuery {
+    limit: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct TextNoteResponse {
+    author_bech32: String,
+    content: String,
+    created_at: i64,
+}
+
+async fn latest_text_notes_route(
+    db: DB,
+    query: TextNotesQuery,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let limit = min(10, query.limit.unwrap_or(10));
+    let events = db
+        .query(
+            vec![nostr::Filter::new()
+                .limit(limit as usize)
+                .kind(nostr::Kind::TextNote)],
+            nostr_database::Order::Desc,
+        )
+        .await
+        .unwrap();
+
+    let resp = events
+        .iter()
+        .map(|event| TextNoteResponse {
+            author_bech32: event.author().to_bech32().unwrap(),
+            content: String::from(event.content()),
+            created_at: event.created_at().as_i64(),
+        })
+        .collect::<Vec<_>>();
+    Ok(warp::reply::json(&resp))
 }
 
 fn get_bech32(keys: &nostr::Keys) -> Result<(String, String)> {
@@ -119,9 +164,10 @@ async fn main() -> Result<()> {
     client.subscribe(vec![subscription], None).await;
 
     let client2 = client.clone();
+    let db2 = db.clone();
     thread::spawn(move || {
         println!("Listening to nostr event notifications on a seprate thread.");
-        let _ = futures::executor::block_on(notification_handler(&db, &client2));
+        let _ = futures::executor::block_on(notification_handler(&db2, &client2));
     });
 
     // Set up the routes for the REST server.
@@ -136,7 +182,13 @@ async fn main() -> Result<()> {
         .and(with_client(client.clone()))
         .and(warp::body::json())
         .and_then(publish_text_note_route);
-    let routes = new_keys.or(publish_text_note);
+    let latest_text_notes = warp::get()
+        .and(warp::path("latest-text-notes"))
+        .and(warp::path::end())
+        .and(with_db(db.clone()))
+        .and(warp::query::<TextNotesQuery>())
+        .and_then(latest_text_notes_route);
+    let routes = new_keys.or(publish_text_note).or(latest_text_notes);
     warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
     Ok(())
 }
